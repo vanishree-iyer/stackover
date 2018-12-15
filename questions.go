@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bbalet/stopwords"
 	mux "github.com/gorilla/mux"
@@ -18,11 +19,13 @@ import (
 )
 
 type Question struct {
-	Id     int    `json:"id,omitempty"`
-	Que    string `json:"question,omitempty"`
-	UserId string `json:"userid,omitempty"`
-	Votes  int    `json:"votes,omitempty"`
-	Url    string `json:"Url,omitempty"`
+	Id        int       `json:"id,omitempty"`
+	Title     string    `json:"title,omitempty"`
+	Body      string    `json:"body,omitempty"`
+	UserId    string    `json:"userid,omitempty"`
+	Votes     int       `json:"votes,omitempty"`
+	TimeStamp time.Time `json:timestamp,omitempty`
+	Url       string    `json:"Url,omitempty"`
 }
 type QView struct {
 	Total    int
@@ -30,7 +33,8 @@ type QView struct {
 }
 type QAView struct {
 	Qid    int
-	Ques   string
+	Title  string
+	Body   string
 	Answer []Answer
 }
 type QRequest struct {
@@ -60,6 +64,8 @@ func CreateQuestion(q Question) {
 	if err != nil {
 		fmt.Println("Error", err)
 	}
+	q.TimeStamp = time.Now()
+	rand.Seed(time.Now().UTC().UnixNano())
 	id1 := rand.Intn(10000)
 	id2 := rand.Intn(10000)
 	q.Id = id1 + id2
@@ -126,7 +132,24 @@ func GetQuestion(value string) QView {
 	fmt.Println(values)
 	var qs []Question
 	for _, val := range values {
-		wq := elastic.NewWildcardQuery("question", "*"+val+"*")
+		wq := elastic.NewWildcardQuery("title", "*"+val+"*")
+		result, err := client.Search().Query(wq).Index("questions").Type("_doc").Do(context.TODO())
+		if err != nil {
+
+		}
+		fmt.Println(len(result.Hits.Hits))
+		for _, hit := range result.Hits.Hits {
+			var q Question
+			err := json.Unmarshal(*hit.Source, &q)
+			if err != nil {
+
+			}
+			q.Url = BASEURL + "questions/" + strconv.Itoa(q.Id)
+			qs = append(qs, q)
+		}
+	}
+	for _, val := range values {
+		wq := elastic.NewWildcardQuery("body", "*"+val+"*")
 		result, err := client.Search().Query(wq).Index("questions").Type("_doc").Do(context.TODO())
 		if err != nil {
 
@@ -145,8 +168,8 @@ func GetQuestion(value string) QView {
 	encountered := map[string]bool{}
 	result := []Question{}
 	for v := range qs {
-		if encountered[qs[v].Que] != true {
-			encountered[qs[v].Que] = true
+		if encountered[qs[v].Body] != true {
+			encountered[qs[v].Body] = true
 			result = append(result, qs[v])
 		}
 	}
@@ -209,7 +232,7 @@ func GetQustionById(id int) *QAView {
 	if len(res) == 0 {
 		return nil
 	}
-	return &QAView{Qid: res[0].Id, Ques: res[0].Que, Answer: ans}
+	return &QAView{Qid: res[0].Id, Body: res[0].Body, Title: res[0].Title, Answer: ans}
 }
 
 func CreateAnswer(a Answer) {
@@ -217,6 +240,7 @@ func CreateAnswer(a Answer) {
 	if err != nil {
 		fmt.Println("Error", err)
 	}
+	rand.Seed(time.Now().UTC().UnixNano())
 	id1 := rand.Intn(10000)
 	id2 := rand.Intn(10000)
 	a.Id = id1 + id2 + a.QuesId
@@ -321,40 +345,103 @@ func IncrementQuestionVotes(qid int) {
 		var q Question
 		err := json.Unmarshal(*hit.Source, &q)
 		if err != nil {
-
+			fmt.Println("Error", err)
 		}
 		qs = append(qs, q)
 	}
-	qs[0].Votes += 1
-	fmt.Println(qs)
-	client.Update().Index("questions").Type("_doc").Id(strconv.Itoa(qid)).Doc(qs[0]).Do(context.TODO())
+	if len(qs) < 0 {
+		qs[0].Votes += 1
+		client.Update().Index("questions").Type("_doc").Id(strconv.Itoa(qid)).Doc(qs[0]).Do(context.TODO())
+	}
+}
+
+func DecrementQuestionVotes(qid int) {
+	client, err := elastic.NewClient()
+	if err != nil {
+		fmt.Println("Error", err)
+	}
+
+	query := elastic.NewTermQuery("id", qid)
+	result, err := client.Search().Query(query).Index("questions").Type("_doc").Do(context.TODO())
+	fmt.Println(len(result.Hits.Hits), err)
+	var qs []Question
+	for _, hit := range result.Hits.Hits {
+		var q Question
+		err := json.Unmarshal(*hit.Source, &q)
+		if err != nil {
+			fmt.Println("Error", err)
+		}
+		qs = append(qs, q)
+	}
+	if len(qs) > 0 {
+		qs[0].Votes -= 1
+		client.Update().Index("questions").Type("_doc").Id(strconv.Itoa(qid)).Doc(qs[0]).Do(context.TODO())
+	}
+}
+func IncrementAnswerVotes(qid int) {
+	client, err := elastic.NewClient()
+	if err != nil {
+		fmt.Println("Error", err)
+	}
+
+	query := elastic.NewTermQuery("id", qid)
+	result, err := client.Search().Query(query).Index("questions").Type("_doc").Do(context.TODO())
+	fmt.Println(len(result.Hits.Hits), err)
+	var as []Answer
+	for _, hit := range result.Hits.Hits {
+		var a Answer
+		err := json.Unmarshal(*hit.Source, &a)
+		if err != nil {
+			fmt.Println("Error", err)
+		}
+		as = append(as, a)
+	}
+	if len(as) > 0 {
+		as[0].Votes += 1
+		client.Update().Index("questions").Type("_doc").Id(strconv.Itoa(qid)).Doc(as[0]).Do(context.TODO())
+	}
+}
+
+func DecrementAnswerVotes(qid int) {
+	client, err := elastic.NewClient()
+	if err != nil {
+		fmt.Println("Error", err)
+	}
+
+	query := elastic.NewTermQuery("id", qid)
+	result, err := client.Search().Query(query).Index("questions").Type("_doc").Do(context.TODO())
+	fmt.Println(len(result.Hits.Hits), err)
+	var as []Answer
+	for _, hit := range result.Hits.Hits {
+		var a Answer
+		err := json.Unmarshal(*hit.Source, &a)
+		if err != nil {
+			fmt.Println("Error", err)
+		}
+		as = append(as, a)
+	}
+	if len(as) > 0 {
+		as[0].Votes -= 1
+		client.Update().Index("questions").Type("_doc").Id(strconv.Itoa(qid)).Doc(as[0]).Do(context.TODO())
+	}
 }
 func createQuestion(w http.ResponseWriter, r *http.Request) {
-	setupResponse(&w, r)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	var question Question
-	// enableCors(&w)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	_ = json.NewDecoder(r.Body).Decode(&question)
 	CreateQuestion(question)
 	json.NewEncoder(w).Encode(question)
 }
 
 func getAllQuestions(w http.ResponseWriter, r *http.Request) {
-	setupResponse(&w, r)
 	q := GetAllQuestions()
-	// enableCors(&w)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	json.NewEncoder(w).Encode(q)
 }
 func getQuestionById(w http.ResponseWriter, r *http.Request) {
-	setupResponse(&w, r)
 	params := mux.Vars(r)
-	// enableCors(&w)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	id, _ := strconv.Atoi(params["id"])
 	q := GetQustionById(id)
 	w.Header().Set("Content-Type", "application/json")
@@ -362,10 +449,7 @@ func getQuestionById(w http.ResponseWriter, r *http.Request) {
 }
 
 func getQuestions(w http.ResponseWriter, r *http.Request) {
-	setupResponse(&w, r)
 	w.Header().Set("Content-Type", "application/json")
-	// enableCors(&w)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	var question QRequest
 	_ = json.NewDecoder(r.Body).Decode(&question)
 	s := GetQuestion(question.Que)
@@ -373,10 +457,7 @@ func getQuestions(w http.ResponseWriter, r *http.Request) {
 }
 
 func createAnswer(w http.ResponseWriter, r *http.Request) {
-	setupResponse(&w, r)
 	w.Header().Set("Content-Type", "application/json")
-	// enableCors(&w)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	var answer Answer
 	_ = json.NewDecoder(r.Body).Decode(&answer)
 	CreateAnswer(answer)
@@ -385,24 +466,12 @@ func createAnswer(w http.ResponseWriter, r *http.Request) {
 
 func getAnswerByAID(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	// enableCors(&w)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	id, _ := strconv.Atoi(params["id"])
 	fmt.Println(id)
 	a := GetAnswerByAID(id)
 	fmt.Println(a)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(a)
-}
-
-func enableCors(w *http.ResponseWriter) {
-	(*w).Header().Set("Access-Control-Allow-Origin", "*")
-}
-
-func setupResponse(w *http.ResponseWriter, req *http.Request) {
-	(*w).Header().Set("Access-Control-Allow-Origin", "*")
-	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-	(*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 }
 
 func main() {
@@ -414,8 +483,7 @@ func main() {
 	r.HandleFunc("/api/answers/create", createAnswer).Methods("POST")
 	r.HandleFunc("/api/answers/{id}", getAnswerByAID).Methods("GET")
 	log.Fatal(http.ListenAndServe(":8000", r))
-	//CreateQuestion(Question{Que: "reportix in go lang?", Votes: 5})
-	//UpdateQuestionVotes(-7, 15968)
+
 }
 func unmarshalJSON(bytes []byte, docType reflect.Type) (interface{}, error) {
 	obj := reflect.New(docType)
