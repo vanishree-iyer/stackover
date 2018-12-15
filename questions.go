@@ -41,12 +41,13 @@ type QRequest struct {
 	Que string `json:"query,omitempty"`
 }
 type Answer struct {
-	Id     int    `json:"ans_id"`
-	QuesId int    `json:"ques_id"`
-	Ans    string `json:"answer"`
-	Votes  int    `json:"votes"`
-	UserId string `json:"user_id"`
-	Url    string `json:"Url,omitempty"`
+	Id        int       `json:"ans_id"`
+	QuesId    int       `json:"ques_id"`
+	Body      string    `json:"answer"`
+	Votes     int       `json:"votes"`
+	UserId    string    `json:"user_id"`
+	TimeStamp time.Time `json:timestamp,omitempty`
+	Url       string    `json:"Url,omitempty"`
 }
 type Qkv struct {
 	Key   Question
@@ -198,7 +199,7 @@ func GetQustionById(id int) *QAView {
 		fmt.Println("Error", err)
 	}
 	var qs []Question
-	q := elastic.NewTermQuery("Id", id)
+	q := elastic.NewTermQuery("id", id)
 	result, err := client.Search().Query(q).Index("questions").Type("_doc").Do(context.TODO())
 	if err != nil {
 		fmt.Println("Error", err)
@@ -212,6 +213,7 @@ func GetQustionById(id int) *QAView {
 		q.Url = BASEURL + "questions/" + strconv.Itoa(q.Id)
 		qs = append(qs, q)
 	}
+	fmt.Println(qs)
 	var res []Question
 	qmap := make(map[Question]int)
 	for _, val := range qs {
@@ -228,6 +230,7 @@ func GetQustionById(id int) *QAView {
 		res = append(res, kv.Key)
 	}
 	ans := GetAnswerByQid(id)
+	fmt.Println(ans)
 	fmt.Println(len(res))
 	if len(res) == 0 {
 		return nil
@@ -244,6 +247,7 @@ func CreateAnswer(a Answer) {
 	id1 := rand.Intn(10000)
 	id2 := rand.Intn(10000)
 	a.Id = id1 + id2 + a.QuesId
+	a.TimeStamp = time.Now()
 	req := elastic.NewBulkIndexRequest().
 		Index("answers").
 		Type("_doc").
@@ -474,6 +478,30 @@ func getAnswerByAID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(a)
 }
 
+func questionUpVote(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id, _ := strconv.Atoi(params["id"])
+	IncrementQuestionVotes(id)
+	fmt.Println("vote updated")
+}
+func questionDownVote(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id, _ := strconv.Atoi(params["id"])
+	DecrementQuestionVotes(id)
+	fmt.Println("vote updated")
+}
+func answerUpVote(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id, _ := strconv.Atoi(params["id"])
+	IncrementAnswerVotes(id)
+	fmt.Println("vote updated")
+}
+func answerDownVote(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id, _ := strconv.Atoi(params["id"])
+	DecrementAnswerVotes(id)
+	fmt.Println("vote updated")
+}
 func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/questions", getAllQuestions).Methods("GET")
@@ -482,6 +510,10 @@ func main() {
 	r.HandleFunc("/api/questions/search", getQuestions).Methods("POST")
 	r.HandleFunc("/api/answers/create", createAnswer).Methods("POST")
 	r.HandleFunc("/api/answers/{id}", getAnswerByAID).Methods("GET")
+	r.HandleFunc("/api/questions/upvote{id}", questionUpVote).Methods("GET")
+	r.HandleFunc("/api/questions/downvote{id}", questionDownVote).Methods("GET")
+	r.HandleFunc("/api/answers/upvote{id}", answerUpVote).Methods("GET")
+	r.HandleFunc("/api/answers/downvote{id}", answerDownVote).Methods("GET")
 	log.Fatal(http.ListenAndServe(":8000", r))
 
 }
