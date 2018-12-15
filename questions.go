@@ -19,7 +19,7 @@ import (
 type Question struct {
 	Id     int    `json:"id,omitempty"`
 	Que    string `json:"question,omitempty"`
-	UserId int    `json:"userid,omitempty"`
+	UserId string    `json:"userid,omitempty"`
 	Votes  int    `json:"votes,omitempty"`
 	Url    string `json:"Url,omitempty"`
 }
