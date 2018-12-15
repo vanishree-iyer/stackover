@@ -7,7 +7,6 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/bbalet/stopwords"
 	mux "github.com/gorilla/mux"
+	"github.com/rs/cors"
 	elastic "gopkg.in/olivere/elastic.v6"
 )
 
@@ -26,6 +26,7 @@ type Question struct {
 	Votes     int       `json:"votes,omitempty"`
 	TimeStamp time.Time `json:timestamp,omitempty`
 	Url       string    `json:"Url,omitempty"`
+	Category  string    `json:"category,omitempty"`
 }
 type QView struct {
 	Total    int
@@ -430,12 +431,13 @@ func DecrementAnswerVotes(qid int) {
 	}
 }
 func createQuestion(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	//w.Header().Set("Content-Type", "application/json")
+	//w.Header().Set("Access-Control-Allow-Origin", "*")
 	var question Question
 	_ = json.NewDecoder(r.Body).Decode(&question)
 	CreateQuestion(question)
-	json.NewEncoder(w).Encode(question)
+	http.Redirect(w, r, "/api/questions/"+strconv.Itoa(question.Id), 301)
+	//json.NewEncoder(w).Encode(question)
 }
 
 func getAllQuestions(w http.ResponseWriter, r *http.Request) {
@@ -461,11 +463,12 @@ func getQuestions(w http.ResponseWriter, r *http.Request) {
 }
 
 func createAnswer(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	//w.Header().Set("Content-Type", "application/json")
 	var answer Answer
 	_ = json.NewDecoder(r.Body).Decode(&answer)
 	CreateAnswer(answer)
-	json.NewEncoder(w).Encode(answer)
+	http.Redirect(w, r, "/api/answers/"+strconv.Itoa(answer.Id), 301)
+	//json.NewEncoder(w).Encode(answer)
 }
 
 func getAnswerByAID(w http.ResponseWriter, r *http.Request) {
@@ -514,14 +517,7 @@ func main() {
 	r.HandleFunc("/api/questions/downvote{id}", questionDownVote).Methods("GET")
 	r.HandleFunc("/api/answers/upvote{id}", answerUpVote).Methods("GET")
 	r.HandleFunc("/api/answers/downvote{id}", answerDownVote).Methods("GET")
-	log.Fatal(http.ListenAndServe(":8000", r))
 
-}
-func unmarshalJSON(bytes []byte, docType reflect.Type) (interface{}, error) {
-	obj := reflect.New(docType)
-	doc := obj.Interface()
-	if err := json.Unmarshal(bytes, doc); err != nil {
-		return nil, fmt.Errorf("error while unmarshalling json document to struct of type %v: %v", docType, err)
-	}
-	return doc, nil
+	handler := cors.Default().Handler(r)
+	log.Fatal(http.ListenAndServe(":8000", handler))
 }
